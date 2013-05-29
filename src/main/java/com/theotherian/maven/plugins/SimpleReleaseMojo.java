@@ -20,6 +20,7 @@ import java.util.Set;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.maven.execution.MavenSession;
+import org.apache.maven.model.DeploymentRepository;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.BuildPluginManager;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -35,7 +36,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 
-@Mojo(name = "release")
+// set aggregator to true to avoid traversing the aggregator, because, obviously... *facepalm*
+@Mojo(name = "release", aggregator = true)
 public class SimpleReleaseMojo extends AbstractMojo {
 
   @Parameter(defaultValue = "${project}", readonly = true, required = true)
@@ -55,6 +57,8 @@ public class SimpleReleaseMojo extends AbstractMojo {
 
     String rootBuildDirectory = mavenProject.getBuild().getDirectory();
 
+    getLog().info("doing something");
+
     executeMojo(
       plugin(
         groupId("org.apache.maven.plugins"),
@@ -66,7 +70,7 @@ public class SimpleReleaseMojo extends AbstractMojo {
       configuration(
         element(name("resume"), "false"),
         element(name("preparationGoals"),
-            "com.theotherian.maven.plugins.simple-release-plugin:preflight-check " +
+//            "com.theotherian.maven.plugins:simple-release-plugin:preflight-check " +
             "clean " +
             "com.theotherian.maven.plugins:simple-release-plugin:1.0-SNAPSHOT:install"),
         element(name("arguments"), "-Dsimple-release.rootBuildDirectory=" + rootBuildDirectory)),
@@ -85,12 +89,14 @@ public class SimpleReleaseMojo extends AbstractMojo {
         File descriptor = buildFilesByArtifact.get(projectCoordinates);
         File pom = pomFilesByArtifact.get(projectCoordinates);
         try {
+
           List<String> lines = IOUtils.readLines(new FileReader(descriptor));
           getLog().info("Coordinates: " + projectCoordinates + ", " + "Artifact info:");
           for (String line : lines) {
             getLog().info(line);
           }
           deployArtifacts(pom, lines);
+
         }
         catch (Exception e) {
           getLog().error(e);
@@ -98,18 +104,19 @@ public class SimpleReleaseMojo extends AbstractMojo {
       }
     }
     catch (Exception e) {
-      executeMojo(
+
+    }
+    executeMojo(
         plugin(
-          groupId("org.apache.maven.plugins"),
-          artifactId("maven-release-plugin"),
-          // FIXME this should be configurable
-          version("2.3.2")
+            groupId("org.apache.maven.plugins"),
+            artifactId("maven-release-plugin"),
+            // FIXME this should be configurable
+            version("2.3.2")
         ),
         goal("clean"),
         configuration(),
         executionEnvironment(mavenProject, mavenSession, pluginManager)
-      );
-    }
+    );
 
   }
 
@@ -129,12 +136,13 @@ public class SimpleReleaseMojo extends AbstractMojo {
       info.setType(artifactValues[1]);
       artifactsByClassifier.put(artifactInfo[0], info);
     }
-    String releaseRepoUrl = mavenProject.getDistributionManagement().getRepository().getUrl();
+    DeploymentRepository releaseRepository = mavenProject.getDistributionManagement().getRepository();
+    String releaseRepoUrl = releaseRepository.getUrl();
 
     List<Element> elements = Lists.newArrayList(
       element(name("url"), releaseRepoUrl),
       // FIXME this should be configurable
-      element(name("repositoryId"), "releases"),
+      element(name("repositoryId"), releaseRepository.getId()),
       element(name("pomFile"), pom.getAbsolutePath()),
       element(name("updateReleaseInfo"), "true")
     );
@@ -188,7 +196,7 @@ public class SimpleReleaseMojo extends AbstractMojo {
       configuration(deployElements),
       executionEnvironment(mavenProject, mavenSession, pluginManager)
     );
-    // seems like a bad idea
+    // seems like a bad idea, but if you don't it'll try to upload previously uploaded artifacts
     mavenProject.getAttachedArtifacts().clear();
   }
 
