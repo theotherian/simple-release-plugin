@@ -38,6 +38,14 @@ public class SimpleReleaseInstallMojo extends AbstractMojo {
   public void execute() throws MojoExecutionException, MojoFailureException {
     String rootBuildDirectory = (String) mavenSession.getSystemProperties().get("simple-release.rootBuildDirectory");
 
+    File rootBuild = new File(rootBuildDirectory);
+    if (!rootBuild.exists()) {
+      getLog().info("Creating directory for release manifests: " + rootBuild.getAbsolutePath());
+      if (!rootBuild.mkdir()) {
+        getLog().error("Cannot create manifest directory for simple-release-plugin");
+      }
+    }
+
     getLog().info("Root build dir: " + rootBuildDirectory);
 
     try {

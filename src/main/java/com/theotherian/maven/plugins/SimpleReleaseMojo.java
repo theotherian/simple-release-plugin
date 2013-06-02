@@ -1,22 +1,8 @@
 package com.theotherian.maven.plugins;
 
-import static org.twdata.maven.mojoexecutor.MojoExecutor.artifactId;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.configuration;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.element;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.executeMojo;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.executionEnvironment;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.goal;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.groupId;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.name;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.plugin;
-import static org.twdata.maven.mojoexecutor.MojoExecutor.version;
-
-import java.io.File;
-import java.io.FileReader;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.maven.execution.MavenSession;
@@ -25,15 +11,21 @@ import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.BuildPluginManager;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugin.descriptor.PluginDescriptor;
 import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
-import org.twdata.maven.mojoexecutor.MojoExecutor.Element;
+import org.apache.maven.scm.manager.ScmManager;
+import org.twdata.maven.mojoexecutor.MojoExecutor.*;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import java.io.File;
+import java.io.FileReader;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static org.twdata.maven.mojoexecutor.MojoExecutor.*;
 
 
 // set aggregator to true to avoid traversing the aggregator, because, obviously... *facepalm*
@@ -52,12 +44,18 @@ public class SimpleReleaseMojo extends AbstractMojo {
   @Parameter(defaultValue = "${reactorProjects}")
   private List<MavenProject> reactorProjects;
 
+  @Component
+  private ScmManager manager;
+
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
 
-    String rootBuildDirectory = mavenProject.getBuild().getDirectory();
+    // Validate SCM information before attempting a release at all
+    SimpleReleaseScmValidator.buildAndExecute(mavenProject, manager);
 
-    getLog().info("doing something");
+    String runtimeVersion = findRuntimeVersion();
+
+    String rootBuildDirectory = mavenProject.getBuild().getDirectory() + "/simple-release-plugin";
 
     executeMojo(
       plugin(
@@ -70,9 +68,9 @@ public class SimpleReleaseMojo extends AbstractMojo {
       configuration(
         element(name("resume"), "false"),
         element(name("preparationGoals"),
-//            "com.theotherian.maven.plugins:simple-release-plugin:preflight-check " +
+            "com.theotherian.maven.plugins:simple-release-plugin:" + runtimeVersion + ":preflight-check " +
             "clean " +
-            "com.theotherian.maven.plugins:simple-release-plugin:1.0-SNAPSHOT:install"),
+            "com.theotherian.maven.plugins:simple-release-plugin:" + runtimeVersion + ":install"),
         element(name("arguments"), "-Dsimple-release.rootBuildDirectory=" + rootBuildDirectory)),
       executionEnvironment(mavenProject, mavenSession, pluginManager)
     );
@@ -231,6 +229,21 @@ public class SimpleReleaseMojo extends AbstractMojo {
       nonversionedCoordinates.append(c);
     }
     return nonversionedCoordinates.toString();
+  }
+
+  /**
+   * Figures out what version of this plugin is executing at runtime.  The reason for this is because this plugin
+   * executes other 'child' goals of itself, and wants to execute the same version of those to ensure compatibility
+   * @return the runtime version of this plugin
+   */
+  private String findRuntimeVersion() {
+    PluginDescriptor pluginDescriptor = new PluginDescriptor();
+    pluginDescriptor.setGroupId("com.theotherian.maven.plugins");
+    pluginDescriptor.setArtifactId("simple-release-plugin");
+    Map<String,Object> pluginContext = mavenSession.getPluginContext(pluginDescriptor, mavenProject);
+    PluginDescriptor descriptor = (PluginDescriptor) pluginContext.get("pluginDescriptor");
+    getLog().info("Detected runtime version of '" + descriptor.getVersion() + "' for simple-release-plugin");
+    return descriptor.getVersion();
   }
 
 }

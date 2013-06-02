@@ -8,20 +8,14 @@ import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
-import org.apache.maven.scm.CommandParameter;
 import org.apache.maven.scm.CommandParameters;
 import org.apache.maven.scm.ScmException;
 import org.apache.maven.scm.ScmFileSet;
-import org.apache.maven.scm.command.info.InfoItem;
 import org.apache.maven.scm.command.info.InfoScmResult;
-import org.apache.maven.scm.command.remoteinfo.RemoteInfoScmResult;
-import org.apache.maven.scm.manager.NoSuchScmProviderException;
 import org.apache.maven.scm.manager.ScmManager;
 import org.apache.maven.scm.provider.ScmProvider;
 import org.apache.maven.scm.provider.ScmProviderRepository;
-import org.apache.maven.scm.provider.ScmProviderRepositoryWithHost;
 import org.apache.maven.scm.repository.ScmRepository;
-import org.apache.maven.scm.repository.ScmRepositoryException;
 
 import java.io.File;
 
@@ -34,15 +28,13 @@ public class SimpleReleaseScmValidator extends AbstractMojo {
   @Component
   private ScmManager manager;
 
-//  @Component
-//  private ScmProvider scmProvider;
-
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
+
+
     Scm scm = project.getScm();
     ScmRepository repository = null;
     try {
-//      getLog().info("SCM type: " + scmProvider.getScmType());
       repository = manager.makeScmRepository(scm.getDeveloperConnection());
       getLog().info("Provider: " + repository.getProvider());
 
@@ -107,6 +99,13 @@ public class SimpleReleaseScmValidator extends AbstractMojo {
       getLog().error(message);
       throw new MojoExecutionException(message);
     }
+  }
+
+  public static void buildAndExecute(MavenProject project, ScmManager manager) throws MojoFailureException, MojoExecutionException {
+    SimpleReleaseScmValidator validator = new SimpleReleaseScmValidator();
+    validator.manager = manager;
+    validator.project = project;
+    validator.execute();
   }
 
 }
