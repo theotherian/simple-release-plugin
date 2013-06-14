@@ -47,14 +47,19 @@ public class SimpleReleaseMojo extends AbstractMojo {
   @Parameter(defaultValue = "2.3.2")
   private String releasePluginVersion;
 
+  @Parameter(defaultValue = "true")
+  private boolean validateScm;
+
   @Component
   private ScmManager manager;
 
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
 
-    // Validate SCM information before attempting a release at all
-    SimpleReleaseScmValidator.buildAndExecute(mavenProject, manager);
+    if (validateScm) {
+      // Validate SCM information before attempting a release at all
+      SimpleReleaseScmValidator.buildAndExecute(mavenProject, manager);
+    }
 
     String runtimeVersion = findRuntimeVersion();
 
@@ -217,19 +222,24 @@ public class SimpleReleaseMojo extends AbstractMojo {
     return buildFilesByArtifact;
   }
 
-  private String getNonversionedCoordinates(String projectArtifactId) {
-    StringBuilder nonversionedCoordinates = new StringBuilder();
+  /**
+   * Figures out the group id and artifact id string of the project
+   * @param projectArtifactId
+   * @return 'groupId':'artifactId'
+   */
+  String getNonversionedCoordinates(String projectArtifactId) {
     int colonCounter = 0;
+    int place = 0;
     for (char c : projectArtifactId.toCharArray()) {
+      place++;
       if (c == ':') {
         colonCounter++;
       }
       if (colonCounter == 2) {
         break;
       }
-      nonversionedCoordinates.append(c);
     }
-    return nonversionedCoordinates.toString();
+    return projectArtifactId.substring(0, place - 1);
   }
 
   /**
