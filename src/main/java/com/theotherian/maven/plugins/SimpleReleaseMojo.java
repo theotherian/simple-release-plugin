@@ -47,6 +47,9 @@ public class SimpleReleaseMojo extends AbstractMojo {
   @Parameter(defaultValue = "2.3.2")
   private String releasePluginVersion;
 
+  @Parameter(defaultValue = "2.7")
+  private String deployPluginVersion;
+
   @Parameter(defaultValue = "true")
   private boolean validateScm;
 
@@ -65,6 +68,10 @@ public class SimpleReleaseMojo extends AbstractMojo {
 
     String rootBuildDirectory = mavenProject.getBuild().getDirectory() + "/simple-release-plugin";
 
+    // we're still running release:prepare, but we're also running the 'preflight-check' mojo which will make sure
+    // the version we're trying to release doesn't exist.
+    // also, we're intervening at the end of the install phase to create manifests for the artifacts that need to be
+    // uploaded
     executeMojo(
       plugin(
         groupId("org.apache.maven.plugins"),
@@ -90,16 +97,21 @@ public class SimpleReleaseMojo extends AbstractMojo {
       Map<String, File> pomFilesByArtifact = enumerateReleasePoms(rootBuildDirectory);
 
       for (MavenProject project : reactorProjects) {
+        // look up the pom and the descriptor for each project
+        // the pom is the actual release pom maven builds for the project
+        // the descriptor tracks all the artifacts created under the install phase
         String projectCoordinates = getNonversionedCoordinates(project.getId());
         File descriptor = buildFilesByArtifact.get(projectCoordinates);
         File pom = pomFilesByArtifact.get(projectCoordinates);
-        try {
 
+
+        try {
           List<String> lines = IOUtils.readLines(new FileReader(descriptor));
           getLog().info("Coordinates: " + projectCoordinates + ", " + "Artifact info:");
           for (String line : lines) {
             getLog().info(line);
           }
+          // upload the pom and all the artifacts for the given project
           deployArtifacts(pom, lines);
 
         }
@@ -111,6 +123,8 @@ public class SimpleReleaseMojo extends AbstractMojo {
     catch (Exception e) {
 
     }
+
+    // no matter what happens, run release:clean to remove the extra files the release:prepare goal creates
     executeMojo(
         plugin(
             groupId("org.apache.maven.plugins"),
@@ -125,13 +139,27 @@ public class SimpleReleaseMojo extends AbstractMojo {
   }
 
   private Map<String, File> enumerateReleasePoms(String rootBuildDirectory) {
-    return getAllFilesByExtension(rootBuildDirectory, SimpleReleaseInstallMojo.RELEASE_POM_EXTENSION);
+    return getMavenProjectFilesByExtension(rootBuildDirectory, SimpleReleaseInstallMojo.RELEASE_POM_EXTENSION);
   }
 
   private static final Set<String> STANDARD_ARTIFACTS = ImmutableSet.of("javadoc", "sources", "artifact");
 
+  /**
+   * Here's where the magic happens.  The pom and each artifact as described in 'lines' is uploaded via the deploy
+   * plugin and release information is updated.
+   * @param pom
+   * @param lines
+   * @throws MojoExecutionException
+   */
   private void deployArtifacts(File pom, List<String> lines) throws MojoExecutionException {
+
     Map<String, ArtifactInfo> artifactsByClassifier = Maps.newHashMap();
+
+    // parse each line, which is in the format 'classifier'='absolute file path'|'type'
+    // an example of this is
+    // for each line, create an ArtifactInfo instance that contains the path and type, and put that in a map with a
+    // key of the classifier
+    // the deploy plugin likes having both the classifier and the type
     for (String line : lines) {
       String[] artifactInfo = line.split("=");
       String[] artifactValues = artifactInfo[1].split("[|]");
@@ -140,12 +168,15 @@ public class SimpleReleaseMojo extends AbstractMojo {
       info.setType(artifactValues[1]);
       artifactsByClassifier.put(artifactInfo[0], info);
     }
+
+    // get the release repo details
     DeploymentRepository releaseRepository = mavenProject.getDistributionManagement().getRepository();
     String releaseRepoUrl = releaseRepository.getUrl();
 
+    // build up the list of elements that we always need - the url of the repo, the repo id, the pom file, and
+    // opt to update the release info with this upload
     List<Element> elements = Lists.newArrayList(
       element(name("url"), releaseRepoUrl),
-      // FIXME this should be configurable
       element(name("repositoryId"), releaseRepository.getId()),
       element(name("pomFile"), pom.getAbsolutePath()),
       element(name("updateReleaseInfo"), "true")
@@ -160,18 +191,27 @@ public class SimpleReleaseMojo extends AbstractMojo {
       elements.add(element(name("file"), pom.getAbsolutePath()));
     }
 
+    // sources are a special case and need to be named as sources in the plugin execution
     if (artifactsByClassifier.containsKey("sources")) {
       elements.add(element(name("sources"), artifactsByClassifier.get("sources").getFile()));
     }
 
+    // javadocs are also a special case and need to be named as javadoc in the plugin execution
     if (artifactsByClassifier.containsKey("javadoc")) {
       elements.add(element(name("javadoc"), artifactsByClassifier.get("javadoc").getFile()));
     }
+
 
     List<String> additionalFiles = Lists.newArrayList();
     List<String> additionalClassifiers = Lists.newArrayList();
     List<String> additionalTypes = Lists.newArrayList();
 
+    // for everything that isn't a standard artifact, which is the artifact itself along with sources and javadoc,
+    // we need to build up lists for the data that are ordered with one another, i.e. you should have something
+    // like:
+    // classifiers=rpm,deb
+    // files=foo.rpm,foo.deb
+    // types=rpm-installer,deb-installer
     for (String key : artifactsByClassifier.keySet()) {
       if (!STANDARD_ARTIFACTS.contains(key)) {
         additionalClassifiers.add(key);
@@ -180,6 +220,8 @@ public class SimpleReleaseMojo extends AbstractMojo {
       }
     }
 
+    // if we have additional files, go through each list and join the data with commas so that it matches across
+    // all three attributes
     if (!additionalFiles.isEmpty()) {
       elements.add(element(name("files"), StringUtils.join(additionalFiles, ',')));
       elements.add(element(name("classifiers"), StringUtils.join(additionalClassifiers, ',')));
@@ -189,12 +231,12 @@ public class SimpleReleaseMojo extends AbstractMojo {
     Element[] deployElements = new Element[elements.size()];
     elements.toArray(deployElements);
 
+    // execute the deploy plugin with all of the elements we've amassed that track the artifacts we've built
     executeMojo(
       plugin(
         groupId("org.apache.maven.plugins"),
         artifactId("maven-deploy-plugin"),
-        // FIXME this should be configurable
-        version("2.7")
+        version(deployPluginVersion)
       ),
       goal("deploy-file"),
       configuration(deployElements),
@@ -205,10 +247,16 @@ public class SimpleReleaseMojo extends AbstractMojo {
   }
 
   private Map<String, File> enumerateDeploymentDescriptors(String rootBuildDirectory) {
-    return getAllFilesByExtension(rootBuildDirectory, SimpleReleaseInstallMojo.DEPLOY_DESCRIPTOR_EXTENSION);
+    return getMavenProjectFilesByExtension(rootBuildDirectory, SimpleReleaseInstallMojo.DEPLOY_DESCRIPTOR_EXTENSION);
   }
 
-  private Map<String, File> getAllFilesByExtension(String rootBuildDirectory, String extension) {
+  /**
+   * Builds a map matching a file to the maven group id and artifact id it represents
+   * @param rootBuildDirectory
+   * @param extension
+   * @return a map of files based on group id and artifact id
+   */
+  private Map<String, File> getMavenProjectFilesByExtension(String rootBuildDirectory, String extension) {
     Map<String, File> buildFilesByArtifact = Maps.newHashMap();
 
     File targetDirectory = new File(rootBuildDirectory);

@@ -26,13 +26,8 @@ public class SimpleReleasePreflightCheckMojo extends AbstractMojo {
 
     ArtifactRepository repository = project.getDistributionManagementArtifactRepository();
 
-    if (reactorProjects.isEmpty()) {
-      checkForArtifact(repository, project);
-    }
-    else {
-      for (MavenProject reactorProject : reactorProjects) {
-        checkForArtifact(repository, reactorProject);
-      }
+    for (MavenProject reactorProject : reactorProjects) {
+      checkForArtifact(repository, reactorProject);
     }
 
   }
