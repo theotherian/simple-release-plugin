@@ -44,6 +44,9 @@ public class SimpleReleaseMojo extends AbstractMojo {
   @Parameter(defaultValue = "${reactorProjects}")
   private List<MavenProject> reactorProjects;
 
+  @Parameter(defaultValue = "2.3.2")
+  private String releasePluginVersion;
+
   @Component
   private ScmManager manager;
 
@@ -61,8 +64,7 @@ public class SimpleReleaseMojo extends AbstractMojo {
       plugin(
         groupId("org.apache.maven.plugins"),
         artifactId("maven-release-plugin"),
-        // FIXME this should be configurable
-        version("2.3.2")
+        version(releasePluginVersion)
       ),
       goal("prepare"),
       configuration(
@@ -108,8 +110,7 @@ public class SimpleReleaseMojo extends AbstractMojo {
         plugin(
             groupId("org.apache.maven.plugins"),
             artifactId("maven-release-plugin"),
-            // FIXME this should be configurable
-            version("2.3.2")
+            version(releasePluginVersion)
         ),
         goal("clean"),
         configuration(),
